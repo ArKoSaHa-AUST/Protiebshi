@@ -1,0 +1,53 @@
+.layout {
+  min-height: 100vh;
+  background: var(--slate-50);
+}
+
+.container {
+  display: flex;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding-top: 72px;
+  position: relative;
+}
+
+.backdrop {
+  display: none;
+}
+
+.main {
+  flex: 1;
+  margin-left: 260px;
+  height: calc(100vh - 72px);
+  padding: 24px 24px 24px 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: margin-left 0.3s ease;
+}
+
+.collapsed .main {
+  margin-left: 80px;
+}
+
+@media (max-width: 1024px) {
+  .main {
+    margin-left: 0;
+    padding: 16px;
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 72px 0 0 0;
+    border: none;
+    background: rgba(15, 23, 42, 0.35);
+    z-index: 95;
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    padding: 12px;
+  }
+}

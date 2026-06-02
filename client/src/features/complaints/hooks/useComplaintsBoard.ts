@@ -1,0 +1,516 @@
+// src/features/complaints/hooks/useComplaintsBoard.ts
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { complaintsData, complaintFormLimits } from '../mock/complaintsData';
+import {
+    ComplaintComment,
+    ComplaintFilterState,
+    ComplaintFormErrors,
+    ComplaintFormState,
+    ComplaintItem,
+    ComplaintPriority,
+    ComplaintStatus,
+    ComplaintVisibility,
+} from '../types/complaint.types';
+import { filterComplaints } from './useComplaintFilters';
+
+const defaultFilters: ComplaintFilterState = {
+    categories: [],
+    statuses: [],
+    priorities: [],
+    distance: 2000,
+    timeRange: 'All',
+    myComplaints: false,
+};
+
+const defaultFormState: ComplaintFormState = {
+    title: '',
+    category: '',
+    description: '',
+    location: 'Motijheel, Dhaka',
+    priority: '',
+    visibility: 'Public',
+    photo: null,
+};
+
+const currentUser = 'Test User';
+
+const statusMap: Record<string, ComplaintStatus> = {
+    pending: 'Pending',
+    under_review: 'Under Review',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    rejected: 'Rejected',
+};
+
+const priorityMap: Record<string, ComplaintPriority> = {
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    urgent: 'Urgent',
+};
+
+const visibilityMap: Record<string, ComplaintVisibility> = {
+    public: 'Public',
+    private: 'Only admins',
+    only_admins: 'Only admins',
+    admins_only: 'Only admins',
+};
+
+const categoryLookup: Record<string, ComplaintItem['category']> = {
+    garbage: 'Garbage',
+    'water supply': 'Water supply',
+    electricity: 'Electricity',
+    'road damage': 'Road damage',
+    noise: 'Noise',
+    safety: 'Safety',
+    'illegal activity': 'Illegal activity',
+    other: 'Other',
+};
+
+const decodeCurrentUserIdFromToken = () => {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const token = window.localStorage.getItem('token');
+    if (!token) {
+        return null;
+    }
+
+    try {
+        const payloadSegment = token.split('.')[1];
+        if (!payloadSegment) {
+            return null;
+        }
+
+        const normalizedPayload = payloadSegment
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+        const paddedPayload = normalizedPayload.padEnd(
+            normalizedPayload.length + (4 - (normalizedPayload.length % 4 || 4)),
+            '=',
+        );
+
+        const payload = JSON.parse(atob(paddedPayload));
+        const userId = Number(payload?.sub ?? payload?.user_id ?? payload?.id);
+
+        return Number.isFinite(userId) ? userId : null;
+    } catch {
+        return null;
+    }
+};
+
+const toTitleCase = (value: string): string =>
+    value
+        .split(' ')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+
+const normalizeCategory = (rawCategory: unknown): ComplaintItem['category'] => {
+    const category = String(rawCategory || '').trim();
+    if (!category) {
+        return 'Other';
+    }
+
+    const normalizedKey = category.replace(/_/g, ' ').toLowerCase();
+    return categoryLookup[normalizedKey] || categoryLookup[toTitleCase(category).toLowerCase()] || 'Other';
+};
+
+const normalizeComplaint = (raw: Record<string, unknown>): ComplaintItem => {
+    const statusKey = String(raw.status || '').toLowerCase();
+    const priorityKey = String(raw.priority || '').toLowerCase();
+    const visibilityKey = String(raw.visibility || '').toLowerCase().replace(/\s+/g, '_');
+    const photoPath = typeof raw.photo === 'string' ? raw.photo : null;
+    const attachmentName =
+        photoPath && photoPath.includes('/') ? photoPath.split('/').pop() || photoPath : photoPath;
+    const createdAt = String(raw.created_at || new Date().toISOString());
+    const rawUpdates = Array.isArray(raw.updates) ? raw.updates : [];
+    const updates = rawUpdates
+        .map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+                return null;
+            }
+
+            const candidate = entry as Record<string, unknown>;
+            const stage = typeof candidate.stage === 'string' && candidate.stage.trim() ? candidate.stage.trim() : 'Status update';
+            const date = typeof candidate.date === 'string' && candidate.date.trim() ? candidate.date.trim() : createdAt;
+            const note = typeof candidate.note === 'string' && candidate.note.trim() ? candidate.note.trim() : undefined;
+
+            return note ? { stage, date, note } : { stage, date };
+        })
+        .filter((entry): entry is ComplaintItem['updates'][number] => entry !== null);
+
+    const internalNotesSource = Array.isArray(raw.internal_notes)
+        ? raw.internal_notes
+        : Array.isArray(raw.internalNotes)
+            ? raw.internalNotes
+            : [];
+
+    const internalNotes = internalNotesSource
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim());
+
+    const resolutionSummary = typeof raw.resolution_summary === 'string' && raw.resolution_summary.trim()
+        ? raw.resolution_summary.trim()
+        : typeof raw.resolutionSummary === 'string' && raw.resolutionSummary.trim()
+            ? raw.resolutionSummary.trim()
+            : undefined;
+
+    const assignedTo = typeof raw.assigned_to === 'string' && raw.assigned_to.trim()
+        ? raw.assigned_to.trim()
+        : typeof raw.assignedTo === 'string' && raw.assignedTo.trim()
+            ? raw.assignedTo.trim()
+            : null;
+
+    const resolvedByName =
+        raw.user && typeof raw.user === 'object' && raw.user !== null
+            ? String((raw.user as { name?: unknown }).name || '').trim()
+            : '';
+
+    const code = String(raw.complaint_code || raw.id || `CMP-${Date.now()}`);
+    const numericId = Number(raw.id);
+    const userIdFromPayload =
+        raw.user && typeof raw.user === 'object' && raw.user !== null
+            ? Number((raw.user as { id?: unknown }).id)
+            : NaN;
+
+    return {
+        id: code,
+        recordId: Number.isFinite(numericId) ? numericId : undefined,
+        userId: Number.isFinite(userIdFromPayload) ? userIdFromPayload : undefined,
+        title: String(raw.title || 'Untitled complaint'),
+        category: normalizeCategory(raw.category),
+        description: String(raw.description || ''),
+        priority: priorityMap[priorityKey] || 'Medium',
+        status: statusMap[statusKey] || 'Pending',
+        createdAt,
+        distance: Number(raw.distance ?? 0),
+        upvotes: 0,
+        comments: 0,
+        reportedBy: resolvedByName || 'Anonymous',
+        verified: false,
+        visibility: visibilityMap[visibilityKey] || 'Public',
+        location: String(raw.location || ''),
+        photoUrl: photoPath,
+        photoPath,
+        updates: updates.length > 0 ? updates : [{
+            stage: 'Reported',
+            date: createdAt,
+        }],
+        attachments: attachmentName ? [attachmentName] : [],
+        internalNotes: internalNotes.length > 0 ? internalNotes : undefined,
+        assignedTo,
+        resolutionSummary,
+    };
+};
+
+const extractComplaintsFromResponse = (payload: unknown): ComplaintItem[] => {
+    if (Array.isArray(payload)) {
+        return payload
+            .map((item) => normalizeComplaint(item as Record<string, unknown>));
+    }
+
+    if (payload && typeof payload === 'object') {
+        const maybeObject = payload as { complaints?: unknown };
+        if (Array.isArray(maybeObject.complaints)) {
+            return maybeObject.complaints
+                .map((item) => normalizeComplaint(item as Record<string, unknown>));
+        }
+    }
+
+    return [];
+};
+
+export const useComplaintsBoard = () => {
+    const [complaints, setComplaints] = useState<ComplaintItem[]>([]);
+
+    const [filters, setFilters] =
+        useState<ComplaintFilterState>(defaultFilters);
+
+    const [selectedComplaint, setSelectedComplaint] =
+        useState<ComplaintItem | null>(null);
+
+    const [isFilterDrawerOpen, setIsFilterDrawerOpen] =
+        useState(false);
+
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [deletingComplaintId, setDeletingComplaintId] = useState<number | null>(null);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+
+    const [formState, setFormState] =
+        useState<ComplaintFormState>(defaultFormState);
+
+    const [formErrors, setFormErrors] =
+        useState<ComplaintFormErrors>({});
+
+    const [followedIds, setFollowedIds] = useState<string[]>([]);
+    const [supportedIds, setSupportedIds] = useState<string[]>([]);
+    const [commentedIds, setCommentedIds] = useState<string[]>([]);
+
+    const loadComplaints = useCallback(async () => {
+        setIsLoading(true);
+        setErrorMessage(null);
+
+        try {
+            const stored = window.localStorage.getItem('protibeshi_complaints');
+            if (stored) {
+                setComplaints(JSON.parse(stored));
+            } else {
+                setComplaints(complaintsData);
+                window.localStorage.setItem('protibeshi_complaints', JSON.stringify(complaintsData));
+            }
+        } catch (error) {
+            setErrorMessage('Failed to load complaints');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        setCurrentUserId(decodeCurrentUserIdFromToken());
+        void loadComplaints();
+    }, [loadComplaints]);
+
+    const filteredComplaints = useMemo(
+        () => filterComplaints(complaints, filters, currentUser, currentUserId),
+        [complaints, filters, currentUserId],
+    );
+
+    const updateFormValue = <K extends keyof ComplaintFormState>(
+        key: K,
+        value: ComplaintFormState[K],
+    ) => {
+        setFormState((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const validateForm = () => {
+        const errors: ComplaintFormErrors = {};
+
+        if (!formState.title.trim())
+            errors.title = 'Title is required.';
+
+        if (!formState.category)
+            errors.category = 'Category is required.';
+
+        if (!formState.description.trim())
+            errors.description = 'Description is required.';
+
+        if (!formState.location.trim())
+            errors.location = 'Location is required.';
+
+        if (!formState.priority)
+            errors.priority = 'Priority is required.';
+
+        if (formState.title.length > complaintFormLimits.title) {
+            errors.title = `Keep title under ${complaintFormLimits.title} characters.`;
+        }
+
+        if (
+            formState.description.length >
+            complaintFormLimits.description
+        ) {
+            errors.description = `Keep description under ${complaintFormLimits.description} characters.`;
+        }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+    };
+
+    const resetForm = () => {
+        setFormState(defaultFormState);
+        setFormErrors({});
+    };
+
+    const handleSubmit = async () => {
+        if (!validateForm()) return false;
+
+        setIsSubmitting(true);
+        setErrorMessage(null);
+        setSuccessMessage(null);
+
+        try {
+            const newComplaint: ComplaintItem = {
+                id: `CMP-${Date.now()}`,
+                recordId: Date.now(),
+                userId: currentUserId || 9999, // dummy user id
+                title: formState.title.trim(),
+                category: normalizeCategory(formState.category),
+                description: formState.description.trim(),
+                priority: priorityMap[formState.priority.toLowerCase()] || 'Medium',
+                status: 'Pending',
+                createdAt: new Date().toISOString(),
+                distance: 0,
+                upvotes: 0,
+                comments: 0,
+                reportedBy: currentUser || 'Anonymous',
+                verified: false,
+                visibility: visibilityMap[formState.visibility.toLowerCase().replace(/\s+/g, '_')] || 'Public',
+                location: formState.location.trim(),
+                photoUrl: formState.photo ? URL.createObjectURL(formState.photo) : null,
+                photoPath: null,
+                updates: [{ stage: 'Reported', date: new Date().toISOString() }],
+                attachments: formState.photo ? [formState.photo.name] : [],
+                commentThread: [],
+            };
+
+            const updatedComplaints = [newComplaint, ...complaints];
+            setComplaints(updatedComplaints);
+            window.localStorage.setItem('protibeshi_complaints', JSON.stringify(updatedComplaints));
+
+            setSuccessMessage('Complaint submitted successfully');
+
+            resetForm();
+            setIsFormOpen(false);
+
+            return true;
+        } catch (error) {
+            setErrorMessage('Failed to submit complaint');
+            return false;
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const onDeleteComplaint = useCallback(async (recordId: number) => {
+        setDeletingComplaintId(recordId);
+        setErrorMessage(null);
+        setSuccessMessage(null);
+
+        try {
+            setComplaints((prev) => {
+                const next = prev.filter((item) => item.recordId !== recordId && item.id !== String(recordId));
+                window.localStorage.setItem('protibeshi_complaints', JSON.stringify(next));
+                return next;
+            });
+            setSelectedComplaint((prev) => (prev?.recordId === recordId || prev?.id === String(recordId) ? null : prev));
+            setSuccessMessage('Complaint deleted successfully');
+        } catch (error) {
+            setErrorMessage('Failed to delete complaint');
+        } finally {
+            setDeletingComplaintId(null);
+        }
+    }, []);
+
+    const clearFeedback = () => {
+        setErrorMessage(null);
+        setSuccessMessage(null);
+    };
+
+    const handleSupportToggle = (id: string) => {
+        const wasSupported = supportedIds.includes(id);
+
+        setSupportedIds((prev) =>
+            wasSupported
+                ? prev.filter((item) => item !== id)
+                : [...prev, id],
+        );
+
+        setComplaints((prev) => {
+            const next = prev.map((item) => {
+                if (item.id !== id) return item;
+
+                const nextUpvotes = wasSupported
+                    ? Math.max(0, item.upvotes - 1)
+                    : item.upvotes + 1;
+
+                return { ...item, upvotes: nextUpvotes };
+            });
+            window.localStorage.setItem('protibeshi_complaints', JSON.stringify(next));
+            return next;
+        });
+    };
+
+    const handleFollow = (id: string) => {
+        setFollowedIds((prev) =>
+            prev.includes(id)
+                ? prev.filter((item) => item !== id)
+                : [...prev, id],
+        );
+    };
+
+    const handleCommentClick = (complaint: ComplaintItem) => {
+        setCommentedIds((prev) => {
+            if (!prev.includes(complaint.id)) {
+                return [...prev, complaint.id];
+            }
+            return prev;
+        });
+
+        setSelectedComplaint(complaint);
+    };
+
+    const handleAddComment = (id: string, message: string) => {
+        if (!message.trim()) return;
+
+        const newComment: ComplaintComment = {
+            id: `comment-${Date.now()}`,
+            author: currentUser,
+            message: message.trim(),
+            createdAt: new Date().toISOString(),
+        };
+
+        setComplaints((prev) => {
+            const next = prev.map((item) => {
+                if (item.id !== id) return item;
+
+                const nextThread = item.commentThread
+                    ? [newComment, ...item.commentThread]
+                    : [newComment];
+
+                return {
+                    ...item,
+                    comments: item.comments + 1,
+                    commentThread: nextThread,
+                };
+            });
+            window.localStorage.setItem('protibeshi_complaints', JSON.stringify(next));
+            return next;
+        });
+
+        setSelectedComplaint((prev) => {
+            if (prev?.id === id) {
+                const nextThread = prev.commentThread ? [newComment, ...prev.commentThread] : [newComment];
+                return { ...prev, comments: prev.comments + 1, commentThread: nextThread };
+            }
+            return prev;
+        });
+    };
+
+    return {
+        complaints,
+        filteredComplaints,
+        filters,
+        setFilters,
+        selectedComplaint,
+        setSelectedComplaint,
+        isFilterDrawerOpen,
+        setIsFilterDrawerOpen,
+        isFormOpen,
+        setIsFormOpen,
+        isLoading,
+        isSubmitting,
+        deletingComplaintId,
+        errorMessage,
+        successMessage,
+        currentUserId,
+        formState,
+        formErrors,
+        updateFormValue,
+        handleSubmit,
+        loadComplaints,
+        onDeleteComplaint,
+        clearFeedback,
+        handleSupportToggle,
+        handleFollow,
+        handleCommentClick,
+        handleAddComment,
+        followedIds,
+        supportedIds,
+        commentedIds,
+        currentUser,
+    };
+};

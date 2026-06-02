@@ -1,0 +1,187 @@
+name: Protibeshi CI/CD
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - develop
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (policy-safe)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+            fetch --no-tags --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach "${GITHUB_SHA}"
+
+      - name: Run backend tests in PHP 8.2 container
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/server:/var/www" \
+            -w /var/www \
+            php:8.2-cli bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends git unzip curl libxml2-dev libsqlite3-dev
+              docker-php-ext-install mbstring dom pdo_sqlite
+              curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+              composer install --no-interaction --no-progress --prefer-dist
+              if [ ! -f .env ]; then cp .env.example .env; fi
+              php artisan key:generate --force
+              vendor/bin/phpunit
+            '
+
+
+  frontend-tests:
+    name: frontend-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (policy-safe)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+            fetch --no-tags --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach "${GITHUB_SHA}"
+
+      - name: Run frontend lint + build in Node 20 container
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/client:/app" \
+            -w /app \
+            node:20-bullseye bash -lc '
+              set -euo pipefail
+              if [ -f package-lock.json ]; then
+                npm ci
+              else
+                npm install
+              fi
+              npm run lint
+              rm -rf dist
+              npm run build
+            '
+
+
+  security-checks:
+    name: security-checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (policy-safe)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+            fetch --no-tags --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach "${GITHUB_SHA}"
+
+      - name: Install backend deps (no-dev) in PHP 8.2 container
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/server:/var/www" \
+            -w /var/www \
+            php:8.2-cli bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends git unzip curl
+              curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+              composer install --no-dev --no-interaction --no-progress --prefer-dist
+            '
+
+      - name: Composer audit (backend)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/server:/var/www" \
+            -w /var/www \
+            php:8.2-cli bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends curl
+              curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+              composer audit --no-interaction --no-dev
+            '
+
+      - name: Install production dependencies (frontend) in Node 20 container
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/client:/app" \
+            -w /app \
+            node:20-bullseye bash -lc '
+              set -euo pipefail
+              if [ -f package-lock.json ]; then
+                npm ci --omit=dev
+              else
+                npm install --omit=dev
+              fi
+            '
+
+      - name: NPM audit (frontend)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/client:/app" \
+            -w /app \
+            node:20-bullseye bash -lc 'npm audit --omit=dev --audit-level=high'
+
+
+  docker-build:
+    needs: [backend-tests, frontend-tests, security-checks]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+      - name: Checkout repository (policy-safe)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" \
+            fetch --no-tags --depth=1 origin "${GITHUB_REF}"
+          git checkout --detach "${GITHUB_SHA}"
+
+      - name: Build backend image
+        run: docker build -f ./server/Dockerfile -t protibeshi-backend:ci ./server
+
+      - name: Build frontend image
+        run: docker build --target build -f ./client/Dockerfile -t protibeshi-frontend:ci ./client

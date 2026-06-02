@@ -1,0 +1,105 @@
+# Laravel & PHP
+/vendor/
+vendor/
+/node_modules/
+/public/storage
+/storage/*.key
+.env
+Homestead.json
+Homestead.yaml
+.env.backup
+
+# Laravel Mix
+public/hot
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite
+/node_modules
+/.vite
+/dist
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs and editors
+/.idea
+/.vscode
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+/storage/logs
+/storage/framework/cache/data
+
+# Compiled files
+*.lock
+*.cache
+*.log
+
+# Ignore compiled JS/CSS
+/public/js/*.js
+/public/css/*.css
+
+# Laravel specific
+/storage/*.key
+/bootstrap/cache/*.php
+
+# Composer
+composer.lock
+
+# NPM
+package-lock.json
+yarn.lock
+
+# dotenv environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.docker
+
+# PHPUnit
+phpunit.xml
+phpunit.xml.dist
+
+# Build files
+/dist
+/client/dist/
+
+# Misc
+*.sql
+*.sqlite
+
+
+# Laravel Telescope
+/storage/telescope
+
+# Vite
+node_modules/
+public/build/
+
+# npm
+npm-debug.log*
+yarn-debug.log*
+
+# others
+.idea/
+.vscode/
+
+# TLS cert material for Dockerized Nginx
+nginx/certs/
+nginx/acme-challenge/
+
+# Allow lockfiles (recommended for reproducible CI)
+!composer.lock
+!**/composer.lock
+!package-lock.json
+!**/package-lock.json
+!yarn.lock
+!**/yarn.lock
+ 
+#txt files
+DEPLOY_VERCEL_RAILWAY_STEP_BY_STEP.txt
