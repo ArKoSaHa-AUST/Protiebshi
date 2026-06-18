@@ -1,5 +1,5 @@
 
-# Protibeshi – AI-Powered Hyper-Local Community Platform
+# Protibeshi – Hyper-Local Community Platform
 
 ## Project Overview
 
