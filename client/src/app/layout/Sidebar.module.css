@@ -198,7 +198,35 @@
   transform: none;
 }
 
+.mobileCloseButton {
+  display: none;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 38px;
+  height: 38px;
+  border: none;
+  background: var(--slate-100);
+  color: var(--slate-700);
+  border-radius: 12px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.mobileCloseButton:hover {
+  background: var(--slate-200);
+}
+
 @media (max-width: 1024px) {
+  .sidebar,
+  .sidebar.collapsed {
+    width: 260px;
+    padding: 20px 16px;
+    z-index: 100;
+  }
+
   .sidebar {
     transform: translateX(-100%);
     transition: transform 0.3s ease;
@@ -206,5 +234,9 @@
 
   .open {
     transform: translateX(0);
+  }
+
+  .mobileCloseButton {
+    display: flex;
   }
 }

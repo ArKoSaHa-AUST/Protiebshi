@@ -12,10 +12,12 @@ import {
   MessageSquare,
   MapPin,
   UserRound,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import { ROUTES } from '@/config/routes.config';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface NavigationItem {
   id: string;
@@ -39,15 +41,15 @@ const INCOMING_CALL_STORAGE_KEY = 'protibeshi.incomingCallSession';
 const INCOMING_CALL_EVENT = 'protibeshi-incoming-call-changed';
 
 const containerVariants: Variants = {
-  hidden: { opacity: 0, x: -20 },
-  visible: {
+  closed: { opacity: 0, x: '-100%' },
+  open: {
     opacity: 1,
     x: 0,
     transition: {
-      duration: 0.5,
+      duration: 0.35,
       ease: [0.25, 0.46, 0.45, 0.94],
       staggerChildren: 0.05,
-      delayChildren: 0.2,
+      delayChildren: 0.08,
     },
   },
 };
@@ -90,6 +92,8 @@ export const Sidebar = ({
   onClose?: () => void;
 }) => {
   const [hasIncomingCall, setHasIncomingCall] = useState(false);
+  const isMobile = useIsMobile();
+  const animateState = isMobile ? (isOpen ? 'open' : 'closed') : 'open';
 
   useEffect(() => {
     const readIncomingCallState = () => {
@@ -116,9 +120,39 @@ export const Sidebar = ({
   }, []);
 
   return (
-    <motion.aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''} ${isOpen ? styles.open : ''}`} variants={containerVariants} initial="hidden" animate="visible">
+    <motion.aside
+      className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''} ${isOpen ? styles.open : ''}`}
+      variants={containerVariants}
+      initial={false}
+      animate={animateState}
+    >
       <div className={styles.logoSection}>
-        <motion.div className={styles.logo} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+        <motion.div
+          className={styles.logo}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          role="button"
+          tabIndex={0}
+          aria-label="Toggle sidebar"
+          style={{ cursor: 'pointer' }}
+          onClick={() => {
+            if (isMobile) {
+              onClose?.();
+            } else {
+              onToggle?.();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (isMobile) {
+                onClose?.();
+              } else {
+                onToggle?.();
+              }
+            }
+          }}
+        >
           <div className={styles.logoIcon}>
             <MapPin className={styles.logoIconSvg} />
           </div>
@@ -199,6 +233,10 @@ export const Sidebar = ({
           </NavLink>
         </motion.div>
       </div>
+
+      <button className={styles.mobileCloseButton} type="button" onClick={onClose} aria-label="Close navigation">
+        <X size={18} />
+      </button>
 
       {onToggle && (
         <button className={styles.toggleButton} onClick={onToggle} aria-label="Toggle sidebar">

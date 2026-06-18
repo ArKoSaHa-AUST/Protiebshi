@@ -13,6 +13,14 @@
   z-index: 90;
 }
 
+@media (max-width: 1024px) {
+  .topbar {
+    left: 0;
+    right: 0;
+    padding: 0 16px;
+  }
+}
+
 .left {
   display: flex;
   align-items: center;
@@ -36,6 +44,12 @@
 
 .menuButton:hover {
   background: var(--slate-200);
+}
+
+@media (max-width: 1024px) {
+  .menuButton {
+    display: flex;
+  }
 }
 
 .brand {
