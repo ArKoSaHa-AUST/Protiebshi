@@ -176,3 +176,63 @@ export interface HelpOfferFormState {
 
 export type ReliefFormErrors<T> = Partial<Record<keyof T, string>>;
 
+// ─── Raw API Shapes (used by useReliefBoard normalization helpers) ─────────────
+
+export interface ReliefApiUser {
+  id?: number | string;
+  name?: string;
+  username?: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  profile_picture?: string | null;
+  profile_picture_url?: string | null;
+  avatar?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface ReliefApiComment {
+  id?: number | string;
+  message?: string;
+  body?: string;
+  content?: string;
+  created_at?: string;
+  createdAt?: string;
+  user?: ReliefApiUser | null;
+  author?: ReliefApiUser | null;
+}
+
+export interface ReliefApiItem {
+  id?: number | string;
+  title?: string;
+  description?: string;
+  body?: string;
+  help_type?: string;
+  helpType?: string;
+  urgency?: string;
+  status?: string;
+  location?: string;
+  created_at?: string;
+  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  user?: ReliefApiUser | null;
+  author?: ReliefApiUser | null;
+  comments?: ReliefApiComment[];
+}
+
+export interface OfferApiItem {
+  id?: number | string;
+  title?: string;
+  description?: string;
+  help_type?: string;
+  availability?: string;
+  service_radius?: number;
+  location?: string;
+  created_at?: string;
+  createdAt?: string;
+  user?: ReliefApiUser | null;
+  author?: ReliefApiUser | null;
+}
+

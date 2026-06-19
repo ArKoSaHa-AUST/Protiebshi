@@ -70,6 +70,7 @@ export const PostModerationCard = ({
   onToggleSelect,
   onVerifyPost,
   onRunGeminiReview,
+  onAiRejectPost,
   onDeletePost,
   onOpenReports,
   onOpenFullPost,
